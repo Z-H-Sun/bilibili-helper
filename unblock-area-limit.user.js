@@ -4385,27 +4385,39 @@ function scriptSource(invokeBy) {
             }
           }
           replaceHydrationPlayInfo(initialPlayInfo);
+          const existingDescriptor = Object.getOwnPropertyDescriptor(window, '__playinfo__');
+          const originalGet = existingDescriptor ? existingDescriptor.get : null;
+          const originalSet = existingDescriptor ? existingDescriptor.set : null;
           Object.defineProperty(window, "__playinfo__", {
             configurable: true,
             enumerable: true,
             get: () => {
               util_debug("__playinfo__", "get");
-              return playinfo;
+              if (!playinfo) { return playinfo; } // `playinfo` is initially `undefined`, so that the player will reload it
+              if (originalGet) { // If there's already any getter, let it run, and do the processing here
+                let orig = originalGet();
+                if (!window.__playinfo__origin && window.document.readyState === "loading") {
+                  util_debug("__playinfo__", "init in html", value);
+                  window.__playinfo__origin = orig;
+                  replaceHydrationPlayInfo(orig);
+                } else if (!replaceHydrationPlayInfo(orig)) {
+                  cachePlayInfo(orig);
+                }
+              }
+              return playinfo; // it will be updated in `cachePlayInfo` or `replaceHydrationPlayInfo` (which calls `cachePlayInfo`)
             },
             set: (value) => {
               util_debug("__playinfo__", "set");
+              if (originalSet) { originalSet(value); } // If there's already any setter, let it run first
+              if (originalGet && playinfo) { return; } // If this is the case, everything is done in the getter
               if (!window.__playinfo__origin && window.document.readyState === "loading") {
                 util_debug("__playinfo__", "init in html", value);
                 window.__playinfo__origin = value;
-                if (replaceHydrationPlayInfo(value)) {
-                  return;
-                }
+                replaceHydrationPlayInfo(value)
                 return;
+              } else if (!replaceHydrationPlayInfo(value)) {
+                cachePlayInfo(value);
               }
-              if (replaceHydrationPlayInfo(value)) {
-                return;
-              }
-              cachePlayInfo(value);
             }
           });
         }
